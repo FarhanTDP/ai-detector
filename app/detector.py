@@ -17,6 +17,7 @@ Pipeline for a scan:
 
 from __future__ import annotations
 
+import bisect
 import logging
 import re
 import threading
@@ -24,6 +25,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from . import analysis
 from .config import Settings
 
 log = logging.getLogger("scribescan.detector")
@@ -75,8 +77,11 @@ def window_texts(text: str, size: int, overlap: int) -> tuple[list[tuple[int, in
 
 def combine(scores: list[float], method: str) -> float:
     """Ensemble several models' AI probabilities for one window."""
-    if method == "min":
+    if method == "min" or (method == "confirm" and len(scores) == 2):
         return min(scores)
+    if method == "confirm" and len(scores) > 2:
+        # scores[0] is the primary detector; at least one other model must back it up.
+        return min(scores[0], max(scores[1:]))
     return sum(scores) / len(scores)
 
 
@@ -96,15 +101,21 @@ def build_report(
     threshold: float,
     meta: dict[str, Any],
     model_scores: dict[str, float] | None = None,
+    analytics: dict[str, Any] | None = None,
+    sections: list[dict[str, Any]] | None = None,
+    score: float | None = None,
+    partial: bool = False,
 ) -> dict[str, Any]:
     """Aggregate window scores and apply the human-threshold redaction."""
-    score = sum(chunk_scores) / len(chunk_scores)
-    base = {"word_count": word_count, "chunk_count": len(spans), "threshold": threshold, **meta}
+    if score is None:
+        score = sum(chunk_scores) / len(chunk_scores)
+    base = {"word_count": word_count, "chunk_count": len(spans), "threshold": threshold,
+            "analytics": analytics, **meta}
 
     if score < threshold:
         # Deliberately omit every numeric score — the UI must not be able to show one.
         return {**base, "verdict": "human", "label": "Human-Written",
-                "ai_probability": None, "chunks": None, "model_scores": None}
+                "ai_probability": None, "chunks": None, "model_scores": None, "sections": None}
 
     verdict, label = tier_for(score)
     return {
@@ -117,7 +128,73 @@ def build_report(
             for (s, e), p in zip(spans, chunk_scores)
         ],
         "model_scores": {k: round(v, 4) for k, v in (model_scores or {}).items()} or None,
+        "sections": sections,
+        # True when the score was raised because part of the text is strongly AI-like
+        # even though the document as a whole reads as mixed.
+        "partial": partial,
     }
+
+
+def longest_run(word_scores: list[float], level: float = 0.8) -> int:
+    """Length (in words) of the longest unbroken stretch scoring at or above ``level``."""
+    best = run = 0
+    for w in word_scores:
+        run = run + 1 if w >= level else 0
+        best = max(best, run)
+    return best
+
+
+def document_score(window_scores: list[float], word_scores: list[float], partial_run_words: int) -> float:
+    """Document-level AI probability.
+
+    Normally the mean of the large-window scores. Large windows blur documents
+    that are only partly AI, so if a long unbroken passage is strongly AI-like,
+    the fine-grained mean is used when it is higher.
+    """
+    coarse = sum(window_scores) / len(window_scores)
+    if partial_run_words > 0 and word_scores and longest_run(word_scores) >= partial_run_words:
+        return max(coarse, sum(word_scores) / len(word_scores))
+    return coarse
+
+
+def section_tier(score: float, threshold: float) -> str:
+    return "human" if score < threshold else tier_for(score)[0]
+
+
+def localise(n_words: int, fine_spans: list[tuple[int, int]], fine_scores: list[float]) -> list[float]:
+    """Spread overlapping fine-window scores onto individual words (mean of covering windows)."""
+    total = [0.0] * n_words
+    count = [0] * n_words
+    for (a, b), p in zip(fine_spans, fine_scores):
+        for i in range(a, b):
+            total[i] += p
+            count[i] += 1
+    return [t / c if c else 0.0 for t, c in zip(total, count)]
+
+
+def build_sections(text: str, word_scores: list[float], threshold: float) -> list[dict[str, Any]]:
+    """Per-section AI probability plus heuristic style signals and revision tips."""
+    starts = [w[0] for w in analysis.word_spans(text)]
+    out: list[dict[str, Any]] = []
+    for a, b in analysis.split_sections(text):
+        lo, hi = bisect.bisect_left(starts, a), bisect.bisect_left(starts, b)
+        if hi <= lo:
+            continue
+        score = sum(word_scores[lo:hi]) / (hi - lo)
+        tier = section_tier(score, threshold)
+        flagged = tier != "human"
+        signals = analysis.section_signals(text[a:b]) if flagged else []
+        out.append({
+            "index": len(out),
+            "start_char": a,
+            "end_char": b,
+            "word_count": hi - lo,
+            "ai_probability": round(score, 4),
+            "tier": tier,
+            "signals": signals,
+            "tips": analysis.GENERIC_TIPS if flagged and not signals else [],
+        })
+    return out
 
 
 # --------------------------------------------------------------------------- #
@@ -144,6 +221,7 @@ class ModelSpec:
 KNOWN_MODELS: dict[str, ModelSpec] = {
     "desklib/ai-text-detector-v1.01": ModelSpec("desklib", "mean_pool", "sigmoid", 768),
     "wasitaigeneratedcom/tropa-mini-ai-text-detector": ModelSpec("tropa-mini", "mean_pool", "not_human", 768),
+    "ShantanuT01/vanguard-ai-text-detector": ModelSpec("vanguard", "sequence", "sigmoid", 512),
     "fakespot-ai/roberta-base-ai-text-detection-v1": ModelSpec("fakespot", "sequence", "softmax", 512),
     "Hello-SimpleAI/chatgpt-detector-roberta": ModelSpec("chatgpt-roberta", "sequence", "softmax", 512),
 }
@@ -326,6 +404,18 @@ class HFDetector:
         combined = [combine(list(col), self.settings.ensemble) for col in zip(*per_model.values())]
         return combined, per_model
 
+    def _word_scores(self, text: str, n_words: int) -> list[float]:
+        """AI probability per word, from fine overlapping windows (used to localise the score)."""
+        s = self.settings
+        size = min(s.section_window_words, n_words)
+        overlap = min(s.section_window_overlap, size - 1)
+        # Keep very long documents fast by widening the stride.
+        while len(sliding_windows(n_words, size, overlap)) > s.max_section_windows and overlap > 0:
+            overlap = max(0, overlap - 25)
+        fine_spans, fine_chunks = window_texts(text, size, overlap)
+        fine_scores, _ = self._score_chunks(fine_chunks)
+        return localise(n_words, fine_spans, fine_scores)
+
     def analyze(self, text: str) -> dict[str, Any]:
         if self._state != "ready":
             raise ModelNotReady()
@@ -339,9 +429,21 @@ class HFDetector:
         t0 = time.perf_counter()
         spans, chunks = window_texts(text, s.chunk_words, s.chunk_overlap)
         combined, per_model = self._score_chunks(chunks)
+
+        # Fine windows localise the score to individual words/sections.
+        word_scores = self._word_scores(text, n)
+        score = document_score(combined, word_scores, s.partial_run_words)
+        partial = score > sum(combined) / len(combined)
+        # Sections are only built when there is something to show: under the
+        # human threshold every number is withheld anyway.
+        sections = build_sections(text, word_scores, s.human_threshold) if score >= s.human_threshold else None
         elapsed_ms = round((time.perf_counter() - t0) * 1000)
 
         return build_report(
+            score=score,
+            partial=partial,
+            analytics=analysis.document_stats(text),
+            sections=sections,
             chunk_scores=combined,
             spans=spans,
             word_count=n,

@@ -1,0 +1,11 @@
+A cache is a small, fast storage layer that keeps copies of data so future requests for that data can be served more quickly. The idea is simple, but getting it right in a real system involves a surprising number of trade-offs.
+
+Consider a web application that displays user profiles. Without a cache, every page view triggers a database query. The database has to parse the query, find the row on disk, and send it back over the network. That might take twenty milliseconds. If the same profile is viewed a thousand times a minute, the database repeats identical work a thousand times.
+
+With a cache such as Redis placed in front of the database, the application first checks whether the profile is already stored in memory. If it is, which is known as a cache hit, the data comes back in under a millisecond. If it is not, a cache miss, the application queries the database as usual and then stores the result in the cache for next time. This pattern is commonly called cache-aside, or lazy loading.
+
+The difficult part is deciding when cached data should be thrown away. If a user changes their display name, the copy in the cache is now stale. There are two broad strategies for dealing with this. The first is expiration: every entry is given a time-to-live, perhaps sixty seconds, after which it is automatically removed. This is easy to implement, but it means users may see outdated information for up to a minute. The second is explicit invalidation, where the application deletes the cache entry whenever the underlying data changes. This keeps data fresher, but it requires discipline, since every code path that modifies a profile must also remember to clear the cache.
+
+Memory is also finite, so a cache needs an eviction policy for when it fills up. The most common choice is least recently used, which discards whichever entry has gone the longest without being read. It works well because recently requested data tends to be requested again soon.
+
+Finally, it is worth remembering that a cache adds complexity. It introduces a second source of truth, new failure modes, and bugs that only appear under specific timing. A good rule of thumb is to measure first, and add caching only where the measurements show a real bottleneck.

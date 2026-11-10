@@ -1,0 +1,21 @@
+The signal arrived on a Tuesday, which Okonkwo would later find funny, because nothing important had ever happened to her on a Tuesday.
+
+She was alone in the listening station, eating cold noodles out of the carton and half-watching the waterfall display scroll past. The array had been pointed at the same patch of sky for six weeks. In that time it had picked up two pulsars, a military satellite that officially didn't exist, and a great deal of nothing.
+
+Then a thin bright line appeared at 1420 megahertz and stayed there.
+
+She put down the noodles. Narrowband. Stable. She checked the obvious things first, because the obvious things were always the answer: a microwave in the break room, a truck on the service road, a technician's phone. The line didn't care. It drifted, very slightly, in exactly the way it should if the source were moving with the stars and not with the Earth.
+
+"No," she said out loud, to the empty room. "No, come on."
+
+She ran the verification script. She ran it again. She called up the second dish, forty kilometres away, and asked it to look at the same coordinates. It took ninety seconds to slew into position. She spent them standing with her hands flat on the desk, noticing that her heart was beating in her ears.
+
+The second dish saw it too.
+
+There was a procedure for this. It was in a binder on the shelf above the coffee maker, and in eleven years nobody had opened it except as a joke. Okonkwo took it down. Page one told her to stay calm. Page two told her to notify the director, who was asleep in a different time zone, and to tell no one else.
+
+She had the phone in her hand when the line on the display changed. It didn't vanish. It began to blink, on and off, in short, uneven bursts. She watched it for a full minute before she understood what she was seeing, and when she did, the back of her neck went cold.
+
+The pattern was repeating. And it was the same length, every time, as the verification ping she had just sent to the second dish.
+
+Something out there had been listening, too.

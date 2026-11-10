@@ -116,7 +116,7 @@
 
         <div class="chunks" id="chunksWrap" hidden>
           <div class="chunks-header">
-            <span>Section breakdown</span>
+            <span>Section map</span>
             <span class="muted" id="chunksCount"></span>
           </div>
           <div class="chunk-strip" id="chunkStrip"></div>
@@ -126,6 +126,22 @@
         <dl class="scan-meta" id="scanMeta" hidden></dl>
       </div>
 
+      <div class="card insights-card" id="sectionsCard" hidden>
+        <div class="card-header">
+          <h2>Sections</h2>
+          <label class="toggle" id="hlToggleWrap"><input type="checkbox" id="hlToggle" checked /> Highlight in text</label>
+        </div>
+        <div class="tier-share" id="tierShare"></div>
+        <p class="insights-note" id="sectionsStale" hidden>The text has changed since this scan, so highlights are off. Scan again to refresh them.</p>
+        <p class="insights-note">Percentages come from the detector models. The notes are style patterns that often appear in AI writing, with ways to revise them. They are guidance, not proof.</p>
+        <ol class="section-list" id="sectionList"></ol>
+      </div>
+
+      <div class="card insights-card" id="analyticsCard" hidden>
+        <div class="card-header"><h2>Text analytics</h2></div>
+        <dl class="stats-grid" id="statsGrid"></dl>
+      </div>
+
       <details class="card how-card">
         <summary>How scoring works</summary>
         <ul>
@@ -133,6 +149,7 @@
           <li>Text is split into overlapping ~<b id="howChunk">500</b>-word windows.</li>
           <li>Each window is scored on the GPU by <b id="howModels">two DeBERTa-v3 detectors</b>; <span id="howEnsemble">a window only counts as AI if both agree</span>. The document score is the average across windows.</li>
           <li>Under <b id="howThreshold">20%</b>, the result is shown as <em>Human-Written</em> and the exact score is withheld.</li>
+          <li>Smaller overlapping windows localise the score to each section. If a long passage is strongly AI-like, the document is flagged even when the rest reads as human.</li>
           <li>Detectors are probabilistic — treat results as a signal, not proof.</li>
         </ul>
       </details>

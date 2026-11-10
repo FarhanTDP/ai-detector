@@ -1,7 +1,8 @@
 # Detector benchmark
 
-Why ScribeScan uses **desklib + tropa-mini with 500-word windows** instead of the original
-`Hello-SimpleAI/chatgpt-detector-roberta` with 200-word windows.
+Why ScribeScan uses **tropa-mini + desklib + vanguard with 500-word windows** instead of the original
+`Hello-SimpleAI/chatgpt-detector-roberta` with 200-word windows. The setup was chosen in two rounds;
+round 2 (below) supersedes the round-1 default.
 
 ## The problem
 
@@ -62,9 +63,66 @@ The two models mostly make *different* mistakes on human text, so requiring both
 removes most false accusations while still catching every AI sample. Cost: about 2 GB VRAM
 and about 0.4 s per scan.
 
+## Round 2: wider test set, new ensemble rule
+
+Round 1 only used AI text from one model and human fiction. Round 2 added:
+
+- **8 more AI texts** written by a second, newer model (Claude Fable) in styles round 1 lacked: dialogue, product
+  review, work email, technical explainer, humour, news report, memoir, sci-fi. 18 AI texts in total.
+- **60 more human texts** from other domains: 30 IMDB reviews (2011) and 30 BBC news articles (XSum, 2010-2017).
+  120 human texts in total.
+- **36 half-and-half documents**: about 300 human words joined to about 300 AI words, in both orders.
+
+### The round-1 default missed the new AI texts
+
+| Rule (500-word windows) | AI detected | AI at 80%+ | Human flagged (of 120) | Human at 50%+ |
+|---|---|---|---|---|
+| min(desklib, tropa), the round-1 default | **14/18** | 14 | 4 | 1 |
+| tropa-mini alone | 18/18 | 18 | 7 | 6 |
+| desklib alone | 14/18 | 14 | 13 | 5 |
+| vanguard alone | 18/18 | 18 | 63 | 44 |
+| average of desklib and tropa | 18/18 | 14 | 12 | 3 |
+| middle score of desklib, tropa, vanguard | 18/18 | 18 | 10 | 3 |
+| **tropa, confirmed by desklib or vanguard** | **18/18** | **18** | **7** | **3** |
+
+desklib scored four of the new, more natural-sounding AI texts (dialogue, humour, memoir, sci-fi) at 3-8%, so
+"both must agree" cleared them. tropa-mini caught all 18 but is overconfident on some human fiction. Requiring
+tropa to be **confirmed by at least one of the other two** keeps its recall and trims its confident mistakes.
+vanguard is useless alone (it flags half of all human text) but works as a second opinion.
+
+### Half-AI documents
+
+Large windows blend the two halves, so the document often came out "Human-Written":
+
+| Document score | Half-AI docs flagged (of 36) | Human flagged (of 120) |
+|---|---|---|
+| mean of 500-word windows only | 25 | 7 |
+| mean of 150-word windows only | 36 | 32 |
+| **500-word windows, plus the fine score when a 150+ word passage scores 80%+** | **30** | **8** |
+
+### Final numbers through the app (`evaluate.py`)
+
+| | Result |
+|---|---|
+| AI texts detected | **18/18** |
+| Human texts flagged | **8/120 (7%)**: 8 of 60 stories, 0 of 30 reviews, 0 of 30 news articles |
+| Human texts shown at 50%+ | 5/120 |
+| Half-AI documents flagged | 30/36 |
+| VRAM / scan time | about 3 GB / 1-2 s |
+
+This is a deliberate trade against round 1: four more AI texts and five more half-AI documents are caught, at
+the cost of four more human stories flagged. Set `AIDET_ENSEMBLE=min` and `AIDET_PARTIAL_RUN_WORDS=0` to get the
+stricter round-1 behaviour back.
+
+### Section scores
+
+On the half-and-half documents that were flagged, sections from the human half averaged 14% and sections from
+the AI half averaged 94% (150-word windows, overlap 100). Sections right at the join are the uncertain ones.
+
 ## Caveats
 
-- **Small set.** 10 AI texts from one model family is a sanity check, not a certification.
+- **Small set.** 18 AI texts from two models of one family is a sanity check, not a certification.
+  The ensemble rule was also chosen on this same set, so expect somewhat worse numbers on new text.
   Add your own files to `data/ai/` and `data/human/` and re-run.
 - **Training-data overlap.** desklib and tropa were trained on RAID, which is why RAID wasn't
   used here; it would flatter them.
@@ -76,7 +134,7 @@ and about 0.4 s per scan.
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
-python benchmarks\fetch_human_stories.py
+python benchmarks\fetch_human_stories.py      # 120 human texts
 python benchmarks\evaluate.py
 # compare a single model:
 $env:AIDET_MODELS = "Hello-SimpleAI/chatgpt-detector-roberta"; $env:AIDET_CHUNK_WORDS = 200; $env:AIDET_CHUNK_OVERLAP = 50

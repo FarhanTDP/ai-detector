@@ -18,6 +18,7 @@ class FakeDetector(HFDetector):
         self.score = score
         self.second = second_model_score
         self.seen_chunks: list[str] = []
+        self.calls: list[list[str]] = []
 
     def start_loading(self):
         self._models = ["fake"]  # anything non-empty
@@ -27,7 +28,8 @@ class FakeDetector(HFDetector):
     def _score_chunks(self, chunks):
         from app.detector import combine
 
-        self.seen_chunks = chunks
+        self.calls.append(chunks)
+        self.seen_chunks = self.calls[0]  # first call per scan = the large windows
         per_model = {"model-a": [self.score] * len(chunks)}
         if self.second is not None:
             per_model["model-b"] = [self.second] * len(chunks)
@@ -44,6 +46,7 @@ def make_client(tmp_path):
     clients = []
 
     def _make(score=0.9, second_model_score=None, **overrides):
+        overrides.setdefault("ensemble", "min")
         settings = Settings(db_path=tmp_path / f"db{len(clients)}.sqlite", **overrides)
         detector = FakeDetector(settings, score, second_model_score)
         client = TestClient(create_app(settings, detector))
@@ -169,6 +172,7 @@ def test_min_ensemble_requires_both_models_to_agree(make_client):
     client = make_client(score=0.97, second_model_score=0.05)
     body = client.post("/api/scan", json={"text": words(400)}).json()
     assert body["verdict"] == "human" and "0.97" not in json.dumps(body)
+    assert body["sections"] is None
 
 
 def test_mean_ensemble(make_client):
@@ -209,3 +213,29 @@ def test_access_token_gate(make_client):
     assert r.status_code == 303 and "token" not in r.headers["location"]
     client.cookies.set("scribescan_token", "s3cret")
     assert client.get("/api/documents").status_code == 200
+
+
+# ---------------------------------------------------------------- sections & analytics
+def paragraphs(n_paras: int, words_each: int) -> str:
+    return "\n\n".join(" ".join(f"p{p}w{i}" for i in range(words_each)) + "." for p in range(n_paras))
+
+
+def test_flagged_scan_returns_sections_with_offsets_and_analytics(make_client):
+    client = make_client(score=0.9)
+    text = paragraphs(6, 70)
+    body = client.post("/api/scan", json={"text": text}).json()
+    sections = body["sections"]
+    assert len(sections) == 6 and [s["index"] for s in sections] == list(range(6))
+    for s in sections:
+        assert s["tier"] == "ai" and s["ai_probability"] == pytest.approx(0.9)
+        assert text[s["start_char"]:s["end_char"]].startswith("p") and s["word_count"] == 70
+        assert s["signals"] or s["tips"]  # every flagged section explains itself
+    assert body["analytics"]["paragraphs"] == 6 and body["analytics"]["words"] == 420
+
+
+def test_human_scan_keeps_analytics_but_withholds_sections(make_client):
+    client = make_client(score=0.05)
+    body = client.post("/api/scan", json={"text": paragraphs(6, 70)}).json()
+    assert body["verdict"] == "human" and body["sections"] is None
+    assert body["analytics"]["words"] == 420
+    assert "0.05" not in json.dumps(body)

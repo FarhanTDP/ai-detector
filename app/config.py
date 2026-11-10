@@ -25,7 +25,12 @@ def _env_float(name: str, default: float) -> float:
     return float(_env(name, str(default)))
 
 
-DEFAULT_MODELS = "desklib/ai-text-detector-v1.01,wasitaigeneratedcom/tropa-mini-ai-text-detector"
+# Order matters for the "confirm" ensemble: the first model is the primary detector.
+DEFAULT_MODELS = (
+    "wasitaigeneratedcom/tropa-mini-ai-text-detector,"
+    "desklib/ai-text-detector-v1.01,"
+    "ShantanuT01/vanguard-ai-text-detector"
+)
 
 
 def _env_list(name: str, default: str) -> tuple[str, ...]:
@@ -40,9 +45,11 @@ class Settings:
     # One or more Hugging Face detectors (comma-separated). The defaults won a
     # benchmark against 8 alternatives — see benchmarks/README.md.
     models: tuple[str, ...] = field(default_factory=lambda: _env_list("MODELS", DEFAULT_MODELS))
-    # How per-model scores are combined: "min" = every model must agree a window
-    # is AI (fewest false accusations), "mean" = average.
-    ensemble: str = field(default_factory=lambda: _env("ENSEMBLE", "min"))
+    # How per-model scores are combined for each window:
+    #   "confirm" = the first model's score, capped by the strongest of the others
+    #               (the primary must flag it AND at least one other must confirm)
+    #   "min"     = every model must agree      "mean" = average
+    ensemble: str = field(default_factory=lambda: _env("ENSEMBLE", "confirm"))
     device: str = field(default_factory=lambda: _env("DEVICE", "cuda"))
     # Label in a softmax model's id2label that means "AI". Empty = auto-detect.
     ai_label: str = field(default_factory=lambda: _env("AI_LABEL", ""))
@@ -55,6 +62,13 @@ class Settings:
     # benchmark (short windows roughly doubled false flags on human writing).
     chunk_words: int = field(default_factory=lambda: _env_int("CHUNK_WORDS", 500))
     chunk_overlap: int = field(default_factory=lambda: _env_int("CHUNK_OVERLAP", 150))
+    # Finer windows used only to localise the score to sections for highlighting.
+    section_window_words: int = field(default_factory=lambda: _env_int("SECTION_WINDOW_WORDS", 150))
+    section_window_overlap: int = field(default_factory=lambda: _env_int("SECTION_WINDOW_OVERLAP", 100))
+    max_section_windows: int = field(default_factory=lambda: _env_int("MAX_SECTION_WINDOWS", 300))
+    # A passage this long (words) scoring >= 80% locally lets the fine-grained score
+    # raise the document score, so half-AI documents aren't cleared. 0 disables it.
+    partial_run_words: int = field(default_factory=lambda: _env_int("PARTIAL_RUN_WORDS", 150))
     # Scores below this are reported as "Human-Written" with the % hidden.
     human_threshold: float = field(default_factory=lambda: _env_float("HUMAN_THRESHOLD", 0.20))
 
@@ -74,7 +88,9 @@ class Settings:
             raise ValueError("AIDET_CHUNK_OVERLAP must be >= 0 and smaller than AIDET_CHUNK_WORDS")
         if not self.models:
             raise ValueError("AIDET_MODELS must list at least one model")
-        if self.ensemble not in ("min", "mean"):
-            raise ValueError("AIDET_ENSEMBLE must be 'min' or 'mean'")
+        if self.ensemble not in ("confirm", "min", "mean"):
+            raise ValueError("AIDET_ENSEMBLE must be 'confirm', 'min' or 'mean'")
+        if not 0 <= self.section_window_overlap < self.section_window_words:
+            raise ValueError("AIDET_SECTION_WINDOW_OVERLAP must be smaller than AIDET_SECTION_WINDOW_WORDS")
         if not 0.0 < self.human_threshold < 1.0:
             raise ValueError("AIDET_HUMAN_THRESHOLD must be between 0 and 1")

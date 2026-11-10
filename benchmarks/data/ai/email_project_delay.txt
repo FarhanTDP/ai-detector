@@ -1,0 +1,26 @@
+Subject: Update on the Q3 dashboard migration (new timeline inside)
+
+Hi everyone,
+
+I want to give you a clear picture of where the dashboard migration stands, because I know several of you are planning work around it.
+
+The short version is that we're going to miss the September 15 launch date. Our new target is October 6. I'm sorry about the change, and I'd rather tell you now than surprise you in two weeks.
+
+Here's what happened. When we began moving the historical sales data into the new warehouse, we discovered that roughly eight percent of the records from 2019 and 2020 had inconsistent region codes. Some of this goes back to the old CRM switch, when two teams were tagging accounts in different ways. It doesn't affect current reporting, but it does mean the year-over-year charts in the new dashboard would have been wrong, and in a few cases, wrong by a lot. We didn't feel comfortable shipping numbers that we already knew were unreliable.
+
+Priya and Marcus have built a script that corrects most of the affected records automatically. About 1,200 accounts still need a human to look at them, and the regional leads have kindly agreed to split that list. If everyone finishes their review by September 26, we'll have a full week for testing before launch.
+
+What this means for you:
+
+The current dashboard will stay online and fully supported until at least October 31, so nothing changes in your day-to-day work for now.
+
+Training sessions are moving to the week of September 29. You'll get a new calendar invite by Friday. If the new time doesn't work, just reply to me and we'll find another slot.
+
+If you built saved views or custom filters in the beta, they will carry over. You don't need to redo anything.
+
+I'll send another update next Thursday, even if the only news is that everything is on schedule. In the meantime, if this delay creates a problem for a deadline on your side, please tell me this week. We have a little flexibility on which reports go live first, and I'd much rather rearrange our list than have your team scrambling.
+
+Thanks for your patience, and thanks especially to the regional leads for taking on the extra review work on short notice.
+
+Best,
+Dana

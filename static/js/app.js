@@ -1,5 +1,6 @@
 // ScribeScan frontend: document tabs, auto-save, multi-device sync and AI scanning.
 import { api } from "./api.js";
+import { createInsights } from "./insights.js";
 
 const AUTOSAVE_DEBOUNCE_MS = 1200; // save shortly after the user pauses typing…
 const AUTOSAVE_INTERVAL_MS = 5000; // …and at least every few seconds while typing
@@ -55,6 +56,7 @@ const quill = new Quill("#editor", {
   },
 });
 quill.disable();
+const insights = createInsights(quill);
 
 // ------------------------------------------------------------------ helpers
 const normalize = (t) => t.split(/\s+/).filter(Boolean).join(" ");
@@ -175,7 +177,7 @@ function applyDocument(doc, { preserveSelection = false } = {}) {
   localStorage.setItem(LAST_DOC_KEY, String(doc.id));
 
   if (doc.latest_scan) {
-    renderResult(doc.latest_scan.result, new Date(doc.latest_scan.scanned_at));
+    renderResult(doc.latest_scan.result, new Date(doc.latest_scan.scanned_at), !doc.latest_scan.is_stale);
     state.scannedText = doc.latest_scan.is_stale ? null : normalize(quill.getText());
   } else if (!preserveSelection) {
     resetResult();
@@ -431,15 +433,29 @@ function resetResult() {
   els.chunksWrap.hidden = true;
   els.scanMeta.hidden = true;
   els.stalePill.hidden = true;
+  insights.clear();
 }
 
-function renderResult(r, scannedAt = new Date()) {
+// A whole-document score can hide that the text is mixed, so say so when sections disagree.
+function verdictNote(r, tier) {
+  const sections = r.sections || [];
+  const total = sections.reduce((n, s) => n + s.word_count, 0);
+  const human = sections.filter((s) => s.tier === "human").reduce((n, s) => n + s.word_count, 0);
+  const humanShare = total ? Math.round((human / total) * 100) : 0;
+  if (humanShare >= 15) return `Mixed: about ${humanShare}% of the text reads as human-written. See the sections below.`;
+  if (r.partial) return "Part of this text reads as AI-generated. See the highlighted sections.";
+  return TIER_TEXT[tier] || "";
+}
+
+// offsetsValid: the editor text is exactly what was scanned, so section highlights line up.
+function renderResult(r, scannedAt = new Date(), offsetsValid = true) {
   state.lastResult = { r, scannedAt };
   const tier = r.verdict;
   els.gauge.dataset.tier = tier;
   els.verdict.dataset.tier = tier;
   els.verdictLabel.textContent = r.label;
-  els.verdictSub.textContent = TIER_TEXT[tier] || "";
+  els.verdictSub.textContent = verdictNote(r, tier);
+  insights.render(r, offsetsValid);
 
   if (tier === "human" || r.ai_probability == null) {
     // Server withholds the number below the threshold; show only the "human zone".
@@ -453,7 +469,6 @@ function renderResult(r, scannedAt = new Date()) {
     setGauge(pct);
     countUp(pct);
     els.gaugeCaption.textContent = "AI likelihood";
-    renderChunks(r.chunks || [], r.word_count);
   }
 
   // Per-model agreement (only present when the score is >= the human threshold).
@@ -461,7 +476,7 @@ function renderResult(r, scannedAt = new Date()) {
   const rows = [
     ...modelRows,
     ["Words", r.word_count?.toLocaleString()],
-    ["Sections scored", r.chunk_count],
+    ["Sections", r.sections ? r.sections.length : "—"],
     ["Hardware", r.device ? (r.device.startsWith("cuda") ? "GPU (CUDA)" : "CPU") : "—"],
     ["Inference time", r.elapsed_ms != null ? `${r.elapsed_ms.toLocaleString()} ms` : "—"],
     ["Scanned", `${fmtClock(scannedAt)}`],
@@ -472,20 +487,6 @@ function renderResult(r, scannedAt = new Date()) {
     return [dt, dd];
   }));
   els.scanMeta.hidden = false;
-}
-
-function renderChunks(chunks, totalWords) {
-  els.chunkStrip.replaceChildren();
-  for (const c of chunks) {
-    const seg = document.createElement("div");
-    seg.className = "chunk-seg";
-    seg.style.background = TIER_COLOR[tierFor(c.ai_probability)];
-    seg.style.opacity = String(0.45 + 0.55 * c.ai_probability);
-    seg.title = `Words ${(c.start_word + 1).toLocaleString()}–${c.end_word.toLocaleString()}: ${Math.round(c.ai_probability * 100)}% AI`;
-    els.chunkStrip.append(seg);
-  }
-  els.chunksCount.textContent = `${chunks.length} window${chunks.length === 1 ? "" : "s"}`;
-  els.chunksWrap.hidden = chunks.length === 0;
 }
 
 function showScanAlert(message, kind = "warn", code = "") {
@@ -510,9 +511,9 @@ function setScanning(on) {
     els.verdict.dataset.tier = "scanning";
     els.gaugeNumber.textContent = "…";
     els.verdictLabel.textContent = "Analyzing…";
-    els.verdictSub.textContent = "Scoring overlapping sections with the detector model.";
-    els.chunksWrap.hidden = true;
+    els.verdictSub.textContent = "Scoring overlapping sections with the detector models.";
     els.stalePill.hidden = true;
+    insights.clear();
   }
 }
 
@@ -547,7 +548,7 @@ async function runScan() {
     state.scannedText = normalize(text);
   } catch (err) {
     setScanning(false);
-    if (previous) renderResult(previous.r, previous.scannedAt); else resetResult();
+    if (previous) renderResult(previous.r, previous.scannedAt, state.scannedText === normalize(text)); else resetResult();
     const code = err.body?.code || "";
     showScanAlert(err.message, code === "too_short" || code === "model_not_ready" ? "warn" : "error", code);
   } finally {
