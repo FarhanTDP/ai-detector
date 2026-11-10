@@ -130,8 +130,8 @@
         <summary>How scoring works</summary>
         <ul>
           <li>Scans need at least <b id="howMin">300</b> words.</li>
-          <li>Text is split into overlapping ~<b id="howChunk">200</b>-word windows.</li>
-          <li>Each window is scored by a RoBERTa classifier on the GPU; the document score is the average.</li>
+          <li>Text is split into overlapping ~<b id="howChunk">500</b>-word windows.</li>
+          <li>Each window is scored on the GPU by <b id="howModels">two DeBERTa-v3 detectors</b>; <span id="howEnsemble">a window only counts as AI if both agree</span>. The document score is the average across windows.</li>
           <li>Under <b id="howThreshold">20%</b>, the result is shown as <em>Human-Written</em> and the exact score is withheld.</li>
           <li>Detectors are probabilistic — treat results as a signal, not proof.</li>
         </ul>

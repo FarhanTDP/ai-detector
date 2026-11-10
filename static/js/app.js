@@ -456,7 +456,10 @@ function renderResult(r, scannedAt = new Date()) {
     renderChunks(r.chunks || [], r.word_count);
   }
 
+  // Per-model agreement (only present when the score is >= the human threshold).
+  const modelRows = Object.entries(r.model_scores || {}).map(([name, p]) => [name, `${Math.round(p * 100)}%`]);
   const rows = [
+    ...modelRows,
     ["Words", r.word_count?.toLocaleString()],
     ["Sections scored", r.chunk_count],
     ["Hardware", r.device ? (r.device.startsWith("cuda") ? "GPU (CUDA)" : "CPU") : "—"],
@@ -562,6 +565,11 @@ async function pollHealth() {
     els.howMin.textContent = h.min_words;
     els.howChunk.textContent = h.chunk_words;
     els.howThreshold.textContent = `${Math.round(h.human_threshold * 100)}%`;
+    const n = (h.model.models || []).length;
+    $("howModels").textContent = n > 1 ? `${n} detector models (${h.model.name})` : `the ${h.model.name} detector`;
+    $("howEnsemble").textContent = n < 2 ? "" : h.model.ensemble === "min"
+      ? "a window only counts as AI if every model agrees"
+      : "their scores are averaged";
     if (!state.lastResult) els.verdictSub.textContent = `Write at least ${h.min_words} words, then run a scan.`;
     updateCounts();
     if (["idle", "loading"].includes(h.model.state)) setTimeout(pollHealth, 2000);

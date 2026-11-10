@@ -6,25 +6,33 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.config import Settings
-from app.detector import HFDetector, _Loaded
+from app.detector import HFDetector
 from app.main import create_app
 
 
 class FakeDetector(HFDetector):
-    """Runs the real chunking/aggregation code, but with fixed chunk scores."""
+    """Runs the real windowing/ensembling/aggregation code, but with fixed model scores."""
 
-    def __init__(self, settings, score=0.9):
+    def __init__(self, settings, score=0.9, second_model_score=None):
         super().__init__(settings)
         self.score = score
+        self.second = second_model_score
         self.seen_chunks: list[str] = []
 
     def start_loading(self):
-        self._loaded = _Loaded(None, None, "cpu", 1, {0: "Human", 1: "ChatGPT"})
+        self._models = ["fake"]  # anything non-empty
+        self._device = "cpu"
         self._state = "ready"
 
     def _score_chunks(self, chunks):
+        from app.detector import combine
+
         self.seen_chunks = chunks
-        return [self.score] * len(chunks)
+        per_model = {"model-a": [self.score] * len(chunks)}
+        if self.second is not None:
+            per_model["model-b"] = [self.second] * len(chunks)
+        combined = [combine(list(col), self.settings.ensemble) for col in zip(*per_model.values())]
+        return combined, per_model
 
 
 def words(n: int) -> str:
@@ -35,9 +43,9 @@ def words(n: int) -> str:
 def make_client(tmp_path):
     clients = []
 
-    def _make(score=0.9, **overrides):
+    def _make(score=0.9, second_model_score=None, **overrides):
         settings = Settings(db_path=tmp_path / f"db{len(clients)}.sqlite", **overrides)
-        detector = FakeDetector(settings, score)
+        detector = FakeDetector(settings, score, second_model_score)
         client = TestClient(create_app(settings, detector))
         client.__enter__()
         client.detector = detector
@@ -126,20 +134,48 @@ def test_scan_requires_300_words(client):
 
 def test_scan_ai_text_shows_percentage_and_chunks(make_client):
     client = make_client(score=0.83)
-    r = client.post("/api/scan", json={"text": words(500)})
+    r = client.post("/api/scan", json={"text": words(1000)})
     assert r.status_code == 200
     body = r.json()
     assert body["verdict"] == "ai" and body["ai_probability"] == pytest.approx(0.83)
-    assert body["chunk_count"] == 3 == len(body["chunks"])  # windows at 0, 150, 300
+    assert body["chunk_count"] == 3 == len(body["chunks"])  # 500-word windows at 0, 350, 500
+    assert all(len(c.split()) == 500 for c in client.detector.seen_chunks)
+    assert body["model_scores"] == {"model-a": pytest.approx(0.83)}
+
+
+def test_custom_window_size(make_client):
+    client = make_client(score=0.9, chunk_words=200, chunk_overlap=50)
+    body = client.post("/api/scan", json={"text": words(500)}).json()
+    assert body["chunk_count"] == 3  # windows at 0, 150, 300
     assert all(len(c.split()) == 200 for c in client.detector.seen_chunks)
+
+
+def test_windows_keep_paragraph_breaks(client):
+    text = "\n\n".join(words(120) for _ in range(4))
+    client.post("/api/scan", json={"text": text})
+    assert "\n\n" in client.detector.seen_chunks[0]
 
 
 def test_scan_below_threshold_withholds_score(make_client):
     client = make_client(score=0.12)
     body = client.post("/api/scan", json={"text": words(400)}).json()
     assert body["label"] == "Human-Written"
-    assert body["ai_probability"] is None and body["chunks"] is None
+    assert body["ai_probability"] is None and body["chunks"] is None and body["model_scores"] is None
     assert "0.12" not in json.dumps(body)
+
+
+def test_min_ensemble_requires_both_models_to_agree(make_client):
+    # model A is sure it's AI, model B says human -> "min" rule clears the text
+    client = make_client(score=0.97, second_model_score=0.05)
+    body = client.post("/api/scan", json={"text": words(400)}).json()
+    assert body["verdict"] == "human" and "0.97" not in json.dumps(body)
+
+
+def test_mean_ensemble(make_client):
+    client = make_client(score=0.9, second_model_score=0.5, ensemble="mean")
+    body = client.post("/api/scan", json={"text": words(400)}).json()
+    assert body["ai_probability"] == pytest.approx(0.7)
+    assert body["model_scores"] == {"model-a": pytest.approx(0.9), "model-b": pytest.approx(0.5)}
 
 
 def test_scan_is_persisted_and_marked_stale_after_edit(client):

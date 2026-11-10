@@ -25,21 +25,36 @@ def _env_float(name: str, default: float) -> float:
     return float(_env(name, str(default)))
 
 
+DEFAULT_MODELS = "desklib/ai-text-detector-v1.01,wasitaigeneratedcom/tropa-mini-ai-text-detector"
+
+
+def _env_list(name: str, default: str) -> tuple[str, ...]:
+    # AIDET_MODEL (singular) is still honoured for backwards compatibility.
+    raw = os.getenv(f"AIDET_{name}") or os.getenv("AIDET_MODEL") or default
+    return tuple(part.strip() for part in raw.split(",") if part.strip())
+
+
 @dataclass(frozen=True)
 class Settings:
-    # --- Model -------------------------------------------------------------
-    model_name: str = field(default_factory=lambda: _env("MODEL", "Hello-SimpleAI/chatgpt-detector-roberta"))
+    # --- Models ------------------------------------------------------------
+    # One or more Hugging Face detectors (comma-separated). The defaults won a
+    # benchmark against 8 alternatives — see benchmarks/README.md.
+    models: tuple[str, ...] = field(default_factory=lambda: _env_list("MODELS", DEFAULT_MODELS))
+    # How per-model scores are combined: "min" = every model must agree a window
+    # is AI (fewest false accusations), "mean" = average.
+    ensemble: str = field(default_factory=lambda: _env("ENSEMBLE", "min"))
     device: str = field(default_factory=lambda: _env("DEVICE", "cuda"))
-    # Label in the model's id2label that means "AI". Empty = auto-detect.
+    # Label in a softmax model's id2label that means "AI". Empty = auto-detect.
     ai_label: str = field(default_factory=lambda: _env("AI_LABEL", ""))
-    batch_size: int = field(default_factory=lambda: _env_int("BATCH_SIZE", 16))
-    max_tokens: int = field(default_factory=lambda: _env_int("MAX_TOKENS", 512))
+    batch_size: int = field(default_factory=lambda: _env_int("BATCH_SIZE", 8))
 
     # --- Detection guardrails ----------------------------------------------
     min_words: int = field(default_factory=lambda: _env_int("MIN_WORDS", 300))
     max_words: int = field(default_factory=lambda: _env_int("MAX_WORDS", 50_000))
-    chunk_words: int = field(default_factory=lambda: _env_int("CHUNK_WORDS", 200))
-    chunk_overlap: int = field(default_factory=lambda: _env_int("CHUNK_OVERLAP", 50))
+    # 500-word windows were markedly more accurate than 200-word ones in the
+    # benchmark (short windows roughly doubled false flags on human writing).
+    chunk_words: int = field(default_factory=lambda: _env_int("CHUNK_WORDS", 500))
+    chunk_overlap: int = field(default_factory=lambda: _env_int("CHUNK_OVERLAP", 150))
     # Scores below this are reported as "Human-Written" with the % hidden.
     human_threshold: float = field(default_factory=lambda: _env_float("HUMAN_THRESHOLD", 0.20))
 
@@ -57,5 +72,9 @@ class Settings:
     def __post_init__(self) -> None:
         if not 0 <= self.chunk_overlap < self.chunk_words:
             raise ValueError("AIDET_CHUNK_OVERLAP must be >= 0 and smaller than AIDET_CHUNK_WORDS")
+        if not self.models:
+            raise ValueError("AIDET_MODELS must list at least one model")
+        if self.ensemble not in ("min", "mean"):
+            raise ValueError("AIDET_ENSEMBLE must be 'min' or 'mean'")
         if not 0.0 < self.human_threshold < 1.0:
             raise ValueError("AIDET_HUMAN_THRESHOLD must be between 0 and 1")

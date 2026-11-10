@@ -25,3 +25,6 @@ data/
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# Benchmark downloads (third-party text, fetched by benchmarks/fetch_human_stories.py)
+benchmarks/data/human/

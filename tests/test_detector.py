@@ -1,6 +1,39 @@
 import pytest
 
-from app.detector import build_report, sliding_windows, tier_for
+from app.config import Settings
+from app.detector import build_report, combine, sliding_windows, spec_for, tier_for, window_texts
+
+
+def test_window_texts_slice_original_text():
+    text = "one two\n\nthree   four five"
+    spans, chunks = window_texts(text, size=3, overlap=1)
+    assert spans == [(0, 3), (2, 5)]
+    assert chunks == ["one two\n\nthree", "three   four five"]
+
+
+def test_combine():
+    assert combine([0.9, 0.3], "min") == 0.3
+    assert combine([0.9, 0.3], "mean") == pytest.approx(0.6)
+
+
+def test_known_and_unknown_model_specs():
+    assert spec_for("desklib/ai-text-detector-v1.01").head == "mean_pool"
+    assert spec_for("wasitaigeneratedcom/tropa-mini-ai-text-detector").output == "not_human"
+    unknown = spec_for("someone/new-detector")
+    assert unknown.head == "sequence" and unknown.short_name == "new-detector"
+
+
+def test_settings_models_from_env(monkeypatch):
+    monkeypatch.setenv("AIDET_MODELS", "a/one, b/two")
+    assert Settings().models == ("a/one", "b/two")
+    monkeypatch.delenv("AIDET_MODELS")
+    monkeypatch.setenv("AIDET_MODEL", "legacy/single")  # old variable still works
+    assert Settings().models == ("legacy/single",)
+
+
+def test_settings_reject_bad_ensemble():
+    with pytest.raises(ValueError):
+        Settings(ensemble="max")
 
 
 def test_short_text_is_single_window():
