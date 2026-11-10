@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0f1115" />
+  <title>ScribeScan — AI Text Detector</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%237c6cff'/><path d='M9 21l5-10 4 7 2-3 3 6' stroke='white' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>" />
+  <link rel="stylesheet" href="/static/vendor/quill/quill.snow.css" />
+  <link rel="stylesheet" href="/static/css/styles.css" />
+</head>
+<body>
+  <div class="app" id="app">
+    <!-- ============ Sidebar: documents ============ -->
+    <aside class="sidebar" id="sidebar" aria-label="Documents">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32"><path d="M9 21l5-10 4 7 2-3 3 6" /></svg>
+        </span>
+        <span class="brand-name">ScribeScan</span>
+      </div>
+
+      <button class="btn btn-primary btn-block" id="newDocBtn" type="button">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+        New Document
+      </button>
+
+      <div class="doc-list-header">
+        <span>Documents</span>
+        <span class="doc-count" id="docCount">0</span>
+      </div>
+      <ul class="doc-list" id="docList" role="listbox" aria-label="Saved documents"></ul>
+
+      <div class="sidebar-footer">
+        <span class="model-badge" id="modelBadge" data-state="loading">
+          <span class="dot"></span><span class="model-badge-text">Model loading…</span>
+        </span>
+      </div>
+    </aside>
+    <div class="scrim" id="scrim" hidden></div>
+
+    <!-- ============ Main: editor ============ -->
+    <main class="main">
+      <header class="topbar">
+        <button class="icon-btn only-mobile" id="menuBtn" type="button" aria-label="Open documents">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+        </button>
+        <input class="title-input" id="titleInput" type="text" maxlength="200"
+               placeholder="Untitled document" aria-label="Document title" autocomplete="off" />
+        <div class="save-status" id="saveStatus" data-state="idle" aria-live="polite">
+          <span class="dot"></span><span class="save-status-text">—</span>
+        </div>
+        <button class="icon-btn only-mobile" id="mobileScanBtn" type="button" aria-label="Scan for AI">
+          <svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
+        </button>
+      </header>
+
+      <div class="conflict-banner" id="conflictBanner" hidden role="alert">
+        <span>This document was edited on another device.</span>
+        <div class="conflict-actions">
+          <button class="btn btn-ghost btn-sm" id="conflictLoadBtn" type="button">Load their version</button>
+          <button class="btn btn-danger btn-sm" id="conflictKeepBtn" type="button">Overwrite with mine</button>
+        </div>
+      </div>
+
+      <section class="editor-shell">
+        <div id="editor"></div>
+      </section>
+
+      <footer class="statusbar">
+        <span id="wordCount">0 words</span>
+        <span class="sep">·</span>
+        <span id="charCount">0 characters</span>
+        <span class="statusbar-hint">Auto-saves as you type · <kbd>Ctrl</kbd>+<kbd>S</kbd> save · <kbd>Ctrl</kbd>+<kbd>Enter</kbd> scan</span>
+      </footer>
+    </main>
+
+    <!-- ============ Scan panel ============ -->
+    <aside class="scan-panel" aria-label="AI detection">
+      <div class="card scan-card">
+        <div class="card-header">
+          <h2>AI Detection</h2>
+          <span class="stale-pill" id="stalePill" hidden title="The text has changed since this result">Outdated</span>
+        </div>
+
+        <div class="gauge" id="gauge" data-tier="empty">
+          <svg viewBox="0 0 240 140" aria-hidden="true">
+            <path class="gauge-track" d="M20 120 A100 100 0 0 1 220 120" pathLength="100" />
+            <path class="gauge-value" id="gaugeValue" d="M20 120 A100 100 0 0 1 220 120" pathLength="100" />
+          </svg>
+          <div class="gauge-readout">
+            <div class="gauge-number" id="gaugeNumber">—</div>
+            <div class="gauge-caption" id="gaugeCaption">AI likelihood</div>
+          </div>
+        </div>
+
+        <div class="verdict" id="verdict">
+          <div class="verdict-label" id="verdictLabel">Not scanned yet</div>
+          <div class="verdict-sub" id="verdictSub">Write at least 300 words, then run a scan.</div>
+        </div>
+
+        <div class="progress-wrap" id="minWordsWrap">
+          <div class="progress-meta">
+            <span>Minimum length</span>
+            <span id="minWordsText">0 / 300 words</span>
+          </div>
+          <div class="progress"><div class="progress-bar" id="minWordsBar"></div></div>
+        </div>
+
+        <div class="alert alert-warn" id="scanAlert" hidden role="alert"></div>
+
+        <button class="btn btn-primary btn-scan" id="scanBtn" type="button">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
+          <span class="btn-scan-text">Scan for AI</span>
+        </button>
+
+        <div class="chunks" id="chunksWrap" hidden>
+          <div class="chunks-header">
+            <span>Section breakdown</span>
+            <span class="muted" id="chunksCount"></span>
+          </div>
+          <div class="chunk-strip" id="chunkStrip"></div>
+          <div class="chunk-legend"><span>Start</span><span>End</span></div>
+        </div>
+
+        <dl class="scan-meta" id="scanMeta" hidden></dl>
+      </div>
+
+      <details class="card how-card">
+        <summary>How scoring works</summary>
+        <ul>
+          <li>Scans need at least <b id="howMin">300</b> words.</li>
+          <li>Text is split into overlapping ~<b id="howChunk">200</b>-word windows.</li>
+          <li>Each window is scored by a RoBERTa classifier on the GPU; the document score is the average.</li>
+          <li>Under <b id="howThreshold">20%</b>, the result is shown as <em>Human-Written</em> and the exact score is withheld.</li>
+          <li>Detectors are probabilistic — treat results as a signal, not proof.</li>
+        </ul>
+      </details>
+    </aside>
+  </div>
+
+  <!-- Confirm dialog -->
+  <dialog class="modal" id="confirmDialog">
+    <form method="dialog">
+      <h3 id="confirmTitle">Delete document?</h3>
+      <p id="confirmBody">This can't be undone.</p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" value="cancel" type="submit">Cancel</button>
+        <button class="btn btn-danger" value="confirm" type="submit" id="confirmOk">Delete</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <script src="/static/vendor/quill/quill.js"></script>
+  <script type="module" src="/static/js/app.js"></script>
+</body>
+</html>

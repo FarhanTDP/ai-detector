@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local data — documents never get committed
+data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+
+# Secrets / local config
+.env
+.env.*
+
+# Editors / OS
+.vscode/
+.idea/
+.claude/
+Thumbs.db
+desktop.ini
+.DS_Store

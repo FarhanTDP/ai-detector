@@ -1,0 +1,13 @@
+# ScribeScan runtime dependencies (Python 3.10+).
+#
+# IMPORTANT (Windows + NVIDIA GPU): install the CUDA build of PyTorch FIRST,
+# otherwise pip pulls the CPU-only wheel from PyPI:
+#
+#   pip install torch --index-url https://download.pytorch.org/whl/cu124
+#
+# scripts\setup.ps1 does this for you.
+torch>=2.6
+transformers>=4.56,<6
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.6
