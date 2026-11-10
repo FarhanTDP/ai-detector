@@ -77,7 +77,7 @@ def create_app(settings: Settings | None = None, detector: BaseDetector | None =
         for url in urls:
             log.info("Network: %s   <- open this on other devices on your Wi-Fi", url)
         if settings.access_token:
-            log.info("Access token is ON — first visit must use  <url>/?token=<AIDET_ACCESS_TOKEN>")
+            log.info("Access token is ON - first visit must use  <url>/?token=<AIDET_ACCESS_TOKEN>")
         yield
 
     app = FastAPI(title="ScribeScan", version=__version__, lifespan=lifespan)

@@ -61,6 +61,7 @@ ai-detector/
 │   └── vendor/quill/  # Quill 2.0.3, vendored so the app works without internet
 ├── tests/             # pytest suite (runs without a GPU)
 ├── scripts/           # setup / run / firewall helpers for Windows
+├── launch.bat         # double-click launcher (first run installs everything)
 ├── requirements.txt
 └── requirements-dev.txt
 ```
@@ -91,6 +92,17 @@ python -c "import torch; print(torch.cuda.is_available())"   # should print True
 ```
 </details>
 
+## Quick start: double-click `launch.bat`
+
+Double-click **`launch.bat`** in the project folder:
+
+- **On the first run**, it runs `setup.ps1` for you.
+- **On later runs**, it starts the server and opens `http://localhost:8000` in your browser once the server answers.
+
+Keep the window open while you use the app. Close it or press `Ctrl+C` to stop the server.
+For a desktop shortcut, right-click `launch.bat`, choose **Show more options → Send to → Desktop (create shortcut)**, and rename the shortcut to "ScribeScan".
+`launch.bat nobrowser` starts the server without opening a browser.
+
 ## Run it on your local network
 
 ```powershell
@@ -98,7 +110,7 @@ python -c "import torch; print(torch.cuda.is_available())"   # should print True
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-You can also run `powershell -ExecutionPolicy Bypass -File scripts\run.ps1` or `python -m app`.
+You can also run `launch.bat`, `powershell -ExecutionPolicy Bypass -File scripts\run.ps1`, or `python -m app`.
 
 `--host 0.0.0.0` makes the server listen on every network interface, so other devices can reach it. On startup it prints
 the URLs to use:

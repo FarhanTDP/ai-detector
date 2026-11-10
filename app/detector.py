@@ -152,7 +152,7 @@ class HFDetector:
             dtype = torch.float16 if device.startswith("cuda") else torch.float32
 
             t0 = time.perf_counter()
-            log.info("Loading %s on %s (%s)…", name, device, str(dtype).replace("torch.", ""))
+            log.info("Loading %s on %s (%s)...", name, device, str(dtype).replace("torch.", ""))
             tokenizer = AutoTokenizer.from_pretrained(name)
             model = AutoModelForSequenceClassification.from_pretrained(name, dtype=dtype)
             model.to(device).eval()
